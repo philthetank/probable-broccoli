@@ -1,0 +1,94 @@
+---
+title: "Prediction Assignment"
+author: "Philip Seidel"
+date: "June 26, 2016"
+output: html_document
+---
+
+### Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+```{r setup, include=FALSE}
+set.seed(1337)
+knitr::opts_chunk$set(cache=TRUE)
+library(caret)
+```
+
+```{r urls}
+trainUrl <- url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+testUrl <- url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+### Getting Data
+
+The training data for this assignment was downloaded from `r trainUrl` .
+The testing data is available from `r testUrl` .
+
+We set the strings "NA","#DIV/0!","" to equal NA when we load the data.
+
+```{r download}
+raw.training <- read.csv(trainUrl, na.strings=c("NA","#DIV/0!",""))
+raw.testing <- read.csv(testUrl, na.strings=c("NA","#DIV/0!",""))
+```
+
+### Cleaning Data
+
+There are several steps we follow to clean up the training data. First we remove zero and near zero columns. Second we remove record keeping columns (e.g user name). Third we remove any columns with null data in them. Finally we convert all columns except classe to numeric values.
+
+```{r cleanup}
+nzv <- nearZeroVar(raw.training, saveMetrics=TRUE)
+nzv <- nzv[,"zeroVar"] + nzv[,"nzv"] > 0
+clean.training <- raw.training[, -nzv ] # remove zero and near zero columns
+clean.training <- clean.training[, -(1:6)] # remove record keeping columns
+clean.training <- clean.training[, colSums(is.na(clean.training)) == 0]
+#convert to numeric
+cols = (1:(ncol(clean.training)-1))    
+for(i in cols) {
+  clean.training[,i] = as.numeric(as.character(clean.training[,i]))
+}
+```
+
+### Train
+
+Once we have cleaned the data, we partition the training data into training and validation sets.
+
+```{r split}
+isTrain <- createDataPartition(y=clean.training$classe, p=0.7, list=FALSE)
+training   <- clean.training[isTrain, ];
+validation <- clean.training[-isTrain, ]
+```
+
+We then train using the random forest and gradient boosting classifiers. The training took a significant time to run.
+
+```{r learn}
+gbm.model<- train(classe ~ ., data = training, method = "gbm")
+rf.model <- train(classe ~ ., data = training, method = "rf")
+```
+
+### Predictions
+
+```{r predict}
+trControl = trainControl(method = "cv", number = 3, repeats = 1)
+gbm.predict.validation <- predict(gbm.model, validation, trControl = trControl)
+rf.predict.validation <- predict(rf.model, validation, trControl = trControl)
+```
+
+We can create a confusion matrix to view the accuracy of our models. 
+
+```{r accuracy}
+rf.confusion <- confusionMatrix(rf.predict.validation, validation$classe)
+gbm.confusion <- confusionMatrix(gbm.predict.validation, validation$classe)
+```
+
+The rf model has `r rf.confusion$overall[1]` accuracy while the gbm model has `r gbm.confusion$overall[1]` accuracy. Both of these models have high accuracy on the validation data.
+
+```{r same}
+gbm.predict.test <- predict(gbm.model, raw.testing)
+rf.predict.test <- predict(rf.model, raw.testing)
+gbm.predict.test == rf.predict.test
+```
+
+I considered exploring more advanced options for training, but ended up accepting my results after seeing that both the gradient boosting and random forest model predict the same results on the testing set.
+
+Ultimately, my models resulted in 100% accuracy against the testing set. The results were verified and submitted online.
